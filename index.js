@@ -4,13 +4,11 @@
 //   - Click any saved preset to instantly apply its Min/Max via utils.setNFS().
 //   - ❌ removes a preset.
 //
-// How presets are saved (CoderTJP extension storage — utils.Config):
-//   All presets are kept together as ONE JSON value under the key "presets".
-//   The Config API has no "list keys" function, so a single key holding the
-//   whole array is the correct way to store the collection. On every change we
-//   write to BOTH of the extension's stores:
-//     - utils.Config.Local  -> instant, on this device (survives reloads)
-//     - utils.Config.Cloud  -> synced to your DPU/extension account, across devices
+// Presets are saved with the extension's local store:
+//   - utils.Config.Local.get({ key })          -> read the saved list
+//   - utils.Config.Local.set({ key, value })   -> write the saved list
+//   All presets live together as ONE JSON value under a single key, because the
+//   Config store is a flat key->value store (no "list keys" function).
 //   Applying a preset uses utils.setNFS(min, max).
 
 (function () {
@@ -21,8 +19,7 @@
         return;
     }
 
-    const FEATURE = 'NFSPresets';   // Cloud "feature" namespace
-    const KEY     = 'presets';      // storage key (Local + Cloud)
+    const KEY = 'nfsPresets';   // unique key inside utils.Config.Local
 
     // Re-run cleanup (e.g. hot reload during development)
     document.getElementById('nfs-presets-box')?.remove();
@@ -58,8 +55,8 @@
     `;
     document.head.appendChild(style);
 
-    // ---------- storage (CoderTJP resources: utils.Config) ----------
-    // Normalises whatever the storage layer hands back into an array of presets.
+    // ---------- storage (utils.Config.Local only) ----------
+    // Normalises whatever the store hands back into an array of presets.
     const coerceStored = (raw) => {
         if (raw == null) return [];
         let v = raw;
@@ -72,45 +69,32 @@
     };
 
     const Store = {
-        // utils.Config.Local.get({ key }) — on-device, returns the stored value
-        readLocal() {
-            try { return coerceStored(utils.Config.Local.get({ key: KEY })); }
-            catch (e) { console.warn('[NFSPresets] local read failed', e); return []; }
+        // Reads the saved list. Works whether get() returns a value OR a Promise.
+        read(cb) {
+            let raw;
+            try { raw = utils.Config.Local.get({ key: KEY }); }
+            catch (e) { console.warn('[NFSPresets] read failed', e); return cb([]); }
+
+            if (raw && typeof raw.then === 'function') {
+                raw.then((v) => cb(coerceStored(v)))
+                   .catch((e) => { console.warn('[NFSPresets] read failed', e); cb([]); });
+            } else {
+                cb(coerceStored(raw));
+            }
         },
-        // utils.Config.Local.set({ key, value })
-        writeLocal(presets) {
-            try { utils.Config.Local.set({ key: KEY, value: JSON.stringify(presets) }); }
-            catch (e) { console.warn('[NFSPresets] local write failed', e); }
-        },
-        // utils.Config.Cloud.get({ feature, key, callback }) — DPU account, async
-        readCloud(cb) {
+        // Writes the whole list back as one JSON string.
+        write(presets) {
             try {
-                utils.Config.Cloud.get({
-                    feature: FEATURE,
-                    key: KEY,
-                    callback: (raw) => cb(coerceStored(raw)),
-                });
-            } catch (e) { console.warn('[NFSPresets] cloud read failed', e); }
-        },
-        // utils.Config.Cloud.set({ feature, key, value, callback })
-        writeCloud(presets, cb) {
-            try {
-                utils.Config.Cloud.set({
-                    feature: FEATURE,
-                    key: KEY,
-                    value: JSON.stringify(presets),
-                    callback: () => { if (typeof cb === 'function') cb(); },
-                });
-            } catch (e) { console.warn('[NFSPresets] cloud write failed', e); }
+                const r = utils.Config.Local.set({ key: KEY, value: JSON.stringify(presets) });
+                if (r && typeof r.catch === 'function') {
+                    r.catch((e) => console.warn('[NFSPresets] write failed', e));
+                }
+            } catch (e) { console.warn('[NFSPresets] write failed', e); }
         },
     };
 
-    // In-memory working copy; persisted to both Local and Cloud on every change.
+    // In-memory working copy; saved on every change.
     let presets = [];
-    const persist = (onCloudDone) => {
-        Store.writeLocal(presets);              // instant, on this device
-        Store.writeCloud(presets, onCloudDone); // synced to the DPU account
-    };
 
     // ---------- the two NFS number inputs (used to capture "current") ----------
     const getInputs = () => ({
@@ -188,9 +172,9 @@
             del.textContent = '❌';
             del.addEventListener('click', () => {
                 presets.splice(i, 1);
+                Store.write(presets);   // persist the trimmed list
                 render();
-                setStatus('Removed ✓');
-                persist();
+                setStatus('Removed \u2713');
             });
 
             item.appendChild(apply);
@@ -214,13 +198,12 @@
         if (!trimmed) { alert('Please enter a name.'); return; }
 
         presets.push({ name: trimmed, min, max });
+        Store.write(presets);   // persist the new preset
         render();
         setStatus('Saved \u2713');
-        // confirm the cloud write actually completed (synced to the DPU account)
-        persist(() => setStatus('Synced to your account \u2713'));
     });
 
-    // ---------- place the box under "Colorblind mode", then hydrate ----------
+    // ---------- place the box under "Colorblind mode", then load saved presets ----------
     // Settings inputs may not exist the moment the plugin loads, so wait for them.
     const waitFor = (selector, cb, tries = 100) => {
         const el = document.querySelector(selector);
@@ -234,21 +217,8 @@
         if (row) row.insertAdjacentElement('afterend', box);
         else (document.querySelector('#settings-popup .graphics') || document.body).appendChild(box);
 
-        // 1) instant render from the on-device cache
-        presets = Store.readLocal();
-        render();
-
-        // 2) refresh from the cloud (synced across devices on the same DPU account)
-        Store.readCloud((cloudPresets) => {
-            if (cloudPresets.length === 0 && presets.length > 0) {
-                // First cloud run with existing local presets -> push them up, keep local
-                Store.writeCloud(presets);
-            } else {
-                presets = cloudPresets;
-                Store.writeLocal(presets);   // cache the cloud copy locally
-                render();
-            }
-        });
+        // load whatever was saved last time
+        Store.read((stored) => { presets = stored; render(); });
     });
 
     console.log('%cNFS Presets loaded \u2713', 'color:#28a745;font-weight:bold');
