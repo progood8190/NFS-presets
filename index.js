@@ -5,8 +5,8 @@
 //   - ❌ removes a preset.
 //
 // Presets are saved with the extension's local store:
-//   - utils.Config.Local.get({ key })          -> read the saved list
-//   - utils.Config.Local.set({ key, value })   -> write the saved list
+//   - utils.Config.Local.get(key)              -> read the saved list (returns the stored string)
+//   - utils.Config.Local.set(key, value)       -> write the saved list (value must be a string)
 //   All presets live together as ONE JSON value under a single key, because the
 //   Config store is a flat key->value store (no "list keys" function).
 //   Applying a preset uses utils.setNFS(min, max).
@@ -72,7 +72,7 @@
         // Reads the saved list. Works whether get() returns a value OR a Promise.
         read(cb) {
             let raw;
-            try { raw = utils.Config.Local.get({ key: KEY }); }
+            try { raw = utils.Config.Local.get(KEY); }   // get(key) -> stored string
             catch (e) { console.warn('[NFSPresets] read failed', e); return cb([]); }
 
             if (raw && typeof raw.then === 'function') {
@@ -82,10 +82,11 @@
                 cb(coerceStored(raw));
             }
         },
-        // Writes the whole list back as one JSON string.
+        // Writes the whole list back. The docs type `value` as a string, so we
+        // serialize here; coerceStored() parses it again on read.
         write(presets) {
             try {
-                const r = utils.Config.Local.set({ key: KEY, value: JSON.stringify(presets) });
+                const r = utils.Config.Local.set(KEY, JSON.stringify(presets));
                 if (r && typeof r.catch === 'function') {
                     r.catch((e) => console.warn('[NFSPresets] write failed', e));
                 }
