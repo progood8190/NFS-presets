@@ -4,9 +4,9 @@
   "manifest_version": 1,
   "type": "javascript",
   "scripts": [
-    "scripts/index.js"
+    "index.js"
   ],
   "stylesheets": [
-    "styles/main.css"
+    "main.css"
   ]
 }
