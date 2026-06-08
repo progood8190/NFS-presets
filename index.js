@@ -4,11 +4,14 @@
 //   - Click any saved preset to instantly apply its Min/Max via utils.setNFS().
 //   - ❌ removes a preset.
 //
-// Storage uses the CoderTJP resources:
-//   - utils.Config.Local  -> instant, on-device cache (survives reloads)
-//   - utils.Config.Cloud  -> synced across devices on the same DPU account
-// Applying a preset uses utils.setNFS(min, max).
-// CSS is injected inline below, so this plugin is just two files.
+// How presets are saved (CoderTJP extension storage — utils.Config):
+//   All presets are kept together as ONE JSON value under the key "presets".
+//   The Config API has no "list keys" function, so a single key holding the
+//   whole array is the correct way to store the collection. On every change we
+//   write to BOTH of the extension's stores:
+//     - utils.Config.Local  -> instant, on this device (survives reloads)
+//     - utils.Config.Cloud  -> synced to your DPU/extension account, across devices
+//   Applying a preset uses utils.setNFS(min, max).
 
 (function () {
     'use strict';
@@ -37,6 +40,8 @@
             transition: background 0.2s ease;
         }
         #nfs-presets-box .nfs-save:hover { background: #218838; }
+        #nfs-presets-box .nfs-status { font-size: 12px; margin-left: auto; opacity: 0; transition: opacity 0.2s ease; }
+        #nfs-presets-box .nfs-status.show { opacity: 0.85; }
         #nfs-presets-box .nfs-list { display: flex; flex-direction: column; gap: 4px; }
         #nfs-presets-box .nfs-item { display: flex; align-items: center; gap: 6px; }
         #nfs-presets-box .nfs-apply {
@@ -53,7 +58,7 @@
     `;
     document.head.appendChild(style);
 
-    // ---------- storage (CoderTJP resources) ----------
+    // ---------- storage (CoderTJP resources: utils.Config) ----------
     // Normalises whatever the storage layer hands back into an array of presets.
     const coerceStored = (raw) => {
         if (raw == null) return [];
@@ -67,14 +72,17 @@
     };
 
     const Store = {
+        // utils.Config.Local.get({ key }) — on-device, returns the stored value
         readLocal() {
             try { return coerceStored(utils.Config.Local.get({ key: KEY })); }
             catch (e) { console.warn('[NFSPresets] local read failed', e); return []; }
         },
+        // utils.Config.Local.set({ key, value })
         writeLocal(presets) {
             try { utils.Config.Local.set({ key: KEY, value: JSON.stringify(presets) }); }
             catch (e) { console.warn('[NFSPresets] local write failed', e); }
         },
+        // utils.Config.Cloud.get({ feature, key, callback }) — DPU account, async
         readCloud(cb) {
             try {
                 utils.Config.Cloud.get({
@@ -84,12 +92,14 @@
                 });
             } catch (e) { console.warn('[NFSPresets] cloud read failed', e); }
         },
-        writeCloud(presets) {
+        // utils.Config.Cloud.set({ feature, key, value, callback })
+        writeCloud(presets, cb) {
             try {
                 utils.Config.Cloud.set({
                     feature: FEATURE,
                     key: KEY,
                     value: JSON.stringify(presets),
+                    callback: () => { if (typeof cb === 'function') cb(); },
                 });
             } catch (e) { console.warn('[NFSPresets] cloud write failed', e); }
         },
@@ -97,7 +107,10 @@
 
     // In-memory working copy; persisted to both Local and Cloud on every change.
     let presets = [];
-    const persist = () => { Store.writeLocal(presets); Store.writeCloud(presets); };
+    const persist = (onCloudDone) => {
+        Store.writeLocal(presets);              // instant, on this device
+        Store.writeCloud(presets, onCloudDone); // synced to the DPU account
+    };
 
     // ---------- the two NFS number inputs (used to capture "current") ----------
     const getInputs = () => ({
@@ -128,10 +141,20 @@
         <div class="nfs-row-top">
             <span>NFS Presets:</span>
             <button type="button" class="nfs-save">Save current</button>
+            <span class="nfs-status"></span>
         </div>
         <div class="nfs-list"></div>
     `;
-    const listEl = box.querySelector('.nfs-list');
+    const listEl   = box.querySelector('.nfs-list');
+    const statusEl = box.querySelector('.nfs-status');
+
+    let statusTimer = null;
+    const setStatus = (text) => {
+        statusEl.textContent = text;
+        statusEl.classList.add('show');
+        clearTimeout(statusTimer);
+        statusTimer = setTimeout(() => statusEl.classList.remove('show'), 2500);
+    };
 
     const render = () => {
         listEl.innerHTML = '';
@@ -165,8 +188,9 @@
             del.textContent = '❌';
             del.addEventListener('click', () => {
                 presets.splice(i, 1);
-                persist();
                 render();
+                setStatus('Removed ✓');
+                persist();
             });
 
             item.appendChild(apply);
@@ -190,8 +214,10 @@
         if (!trimmed) { alert('Please enter a name.'); return; }
 
         presets.push({ name: trimmed, min, max });
-        persist();
         render();
+        setStatus('Saved \u2713');
+        // confirm the cloud write actually completed (synced to the DPU account)
+        persist(() => setStatus('Synced to your account \u2713'));
     });
 
     // ---------- place the box under "Colorblind mode", then hydrate ----------
@@ -212,7 +238,7 @@
         presets = Store.readLocal();
         render();
 
-        // 2) refresh from the cloud (synced across devices)
+        // 2) refresh from the cloud (synced across devices on the same DPU account)
         Store.readCloud((cloudPresets) => {
             if (cloudPresets.length === 0 && presets.length > 0) {
                 // First cloud run with existing local presets -> push them up, keep local
@@ -225,6 +251,6 @@
         });
     });
 
-    console.log('%cNFS Presets loaded ✓', 'color:#28a745;font-weight:bold');
-    console.log('Open Settings → look right under "Colorblind mode".');
+    console.log('%cNFS Presets loaded \u2713', 'color:#28a745;font-weight:bold');
+    console.log('Open Settings \u2192 look right under "Colorblind mode".');
 })();
