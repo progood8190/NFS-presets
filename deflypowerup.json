@@ -1,0 +1,15 @@
+{
+  "name": "NFSPresets",
+  "version": "1.0.0",
+  "manifest_version": 1,
+  "type": "javascript",
+  "scripts": [
+    "scripts/index.js"
+  ],
+  "stylesheets": [
+    "styles/main.css"
+  ],
+  "style": [
+    "styles/main.css"
+  ]
+}
