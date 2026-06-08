@@ -7,6 +7,6 @@
     "index.js"
   ],
   "stylesheets": [
-    "main.css"
+    "styles/main.css"
   ]
 }
