@@ -8,7 +8,7 @@
 //   - utils.Config.Local  -> instant, on-device cache (survives reloads)
 //   - utils.Config.Cloud  -> synced across devices on the same DPU account
 // Applying a preset uses utils.setNFS(min, max).
-// Styling lives in styles/main.css (loaded via deflypowerup.json).
+// CSS is injected inline below, so this plugin is just two files.
 
 (function () {
     'use strict';
@@ -23,6 +23,35 @@
 
     // Re-run cleanup (e.g. hot reload during development)
     document.getElementById('nfs-presets-box')?.remove();
+    document.getElementById('nfs-presets-style')?.remove();
+
+    // ---------- styling (injected inline; theme-aware) ----------
+    const style = document.createElement('style');
+    style.id = 'nfs-presets-style';
+    style.textContent = `
+        #nfs-presets-box { margin-top: 8px; }
+        #nfs-presets-box .nfs-row-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        #nfs-presets-box .nfs-save {
+            background: #28a745; color: #fff; border: none; border-radius: 5px;
+            padding: 5px 12px; cursor: pointer; font-weight: bold;
+            transition: background 0.2s ease;
+        }
+        #nfs-presets-box .nfs-save:hover { background: #218838; }
+        #nfs-presets-box .nfs-list { display: flex; flex-direction: column; gap: 4px; }
+        #nfs-presets-box .nfs-item { display: flex; align-items: center; gap: 6px; }
+        #nfs-presets-box .nfs-apply {
+            flex: 1; text-align: left; cursor: pointer;
+            background: rgba(128,128,128,0.18); color: inherit;
+            border: 1px solid rgba(128,128,128,0.35); border-radius: 6px;
+            padding: 6px 10px; font-size: 14px;
+            transition: background 0.15s ease;
+        }
+        #nfs-presets-box .nfs-apply:hover { background: rgba(128,128,128,0.32); }
+        #nfs-presets-box .nfs-apply b { font-weight: 700; opacity: 0.7; font-size: 12px; }
+        #nfs-presets-box .nfs-del { background: transparent; border: none; cursor: pointer; font-size: 14px; line-height: 1; }
+        #nfs-presets-box .nfs-empty { opacity: 0.55; font-size: 13px; }
+    `;
+    document.head.appendChild(style);
 
     // ---------- storage (CoderTJP resources) ----------
     // Normalises whatever the storage layer hands back into an array of presets.
